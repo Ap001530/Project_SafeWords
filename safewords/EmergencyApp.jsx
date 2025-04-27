@@ -17,7 +17,6 @@ import * as SMS from 'expo-sms';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const EmergencyApp = ({ navigation, route }) => {
-  // State variables
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [isPanicActive, setIsPanicActive] = useState(false);
@@ -29,7 +28,6 @@ const EmergencyApp = ({ navigation, route }) => {
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  // Load contacts and check location permission on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -39,7 +37,8 @@ const EmergencyApp = ({ navigation, route }) => {
         
         const savedContacts = await AsyncStorage.getItem('trustedContacts');
         if (savedContacts && !route.params?.trustedContacts) {
-          setContacts(JSON.parse(savedContacts).map(c => c.number));
+          const parsed = JSON.parse(savedContacts);
+          setContacts(parsed.map(c => c.number).filter(Boolean));
         }
 
         await checkLocationPermission();
@@ -55,7 +54,6 @@ const EmergencyApp = ({ navigation, route }) => {
     };
   }, [route.params?.trustedContacts]);
 
-  // Check and request location permission
   const checkLocationPermission = async () => {
     setIsRequestingPermission(true);
     try {
@@ -74,7 +72,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Location activation handler
   const handleActivateLocation = async () => {
     if (hasLocationPermission) return;
     
@@ -95,7 +92,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Save alert to history
   const saveAlert = async (message, locationData = null) => {
     const newAlert = {
       message,
@@ -113,7 +109,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Send to individual contacts (fallback)
   const sendToContactsIndividually = async (contacts, message) => {
     let successCount = 0;
     const failedContacts = [];
@@ -144,7 +139,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Main emergency alert function
   const sendEmergencyAlert = async () => {
     if (!location) {
       Alert.alert('Error', 'Location not available');
@@ -157,7 +151,7 @@ const EmergencyApp = ({ navigation, route }) => {
     }
 
     setIsSending(true);
-    const message = `EMERGENCY ALERT! I need immediate help! My current location: ${location.coords.latitude}, ${location.coords.longitude}. Sent via SafeWords App`;
+    const message = `EMERGENCY ALERT! I need immediate help! My location: ${location.coords.latitude}, ${location.coords.longitude}. Sent via SafeWords App`;
     
     await saveAlert(`Initiating alert to ${contacts.length} contacts`, location);
 
@@ -165,14 +159,12 @@ const EmergencyApp = ({ navigation, route }) => {
       const available = await SMS.isAvailableAsync();
       if (available) {
         if (Platform.OS === 'android') {
-          // Android: First try group send
           try {
             const { result } = await SMS.sendSMSAsync(contacts, message);
             if (result === 'sent') {
               saveAlert(`Alert sent to all ${contacts.length} contacts`);
               Alert.alert('Success', `Emergency alert sent to ${contacts.length} contacts`);
             } else {
-              // Fallback to individual sending
               await sendToContactsIndividually(contacts, message);
             }
           } catch (e) {
@@ -180,7 +172,6 @@ const EmergencyApp = ({ navigation, route }) => {
             await sendToContactsIndividually(contacts, message);
           }
         } else {
-          // iOS: Open messages app with all contacts pre-filled
           const smsUrl = `sms:${contacts.join(',')}&body=${encodeURIComponent(message)}`;
           await Linking.openURL(smsUrl);
           saveAlert(`Opened messages with ${contacts.length} contacts`);
@@ -198,7 +189,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Start location tracking
   const startTracking = async () => {
     if (!hasLocationPermission) {
       Alert.alert('Location Required', 'Please activate location first');
@@ -223,14 +213,12 @@ const EmergencyApp = ({ navigation, route }) => {
     setLocationSubscription(sub);
   };
 
-  // Stop location tracking
   const stopTracking = () => {
     if (locationSubscription) locationSubscription.remove();
     setIsTracking(false);
     saveAlert('Tracking stopped');
   };
 
-  // Panic button handlers
   const handlePanicPress = () => {
     setIsPanicActive(true);
     const timer = setTimeout(() => {
@@ -249,7 +237,6 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  // Navigation functions
   const goToSettings = () => {
     navigation.navigate('Settings', {
       trustedContacts: contacts,
@@ -270,7 +257,6 @@ const EmergencyApp = ({ navigation, route }) => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerText}>SafeWords</Text>
         <TouchableOpacity
@@ -281,7 +267,6 @@ const EmergencyApp = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Status Bar */}
       <View style={styles.statusBar}>
         <View style={styles.statusItem}>
           <MaterialIcons 
@@ -324,7 +309,6 @@ const EmergencyApp = ({ navigation, route }) => {
         </View>
       </View>
 
-      {/* Location Activation Button */}
       {!hasLocationPermission && (
         <TouchableOpacity
           style={styles.activateButton}
@@ -339,7 +323,6 @@ const EmergencyApp = ({ navigation, route }) => {
         </TouchableOpacity>
       )}
 
-      {/* Panic Button */}
       <TouchableOpacity
         style={[styles.panicButton, isPanicActive && styles.panicActive]}
         onPressIn={handlePanicPress}
@@ -355,7 +338,6 @@ const EmergencyApp = ({ navigation, route }) => {
         )}
       </TouchableOpacity>
 
-      {/* Controls */}
       <View style={styles.controls}>
         {isTracking ? (
           <TouchableOpacity
@@ -375,7 +357,6 @@ const EmergencyApp = ({ navigation, route }) => {
         )}
       </View>
 
-      {/* Location Info */}
       {location && (
         <View style={styles.locationContainer}>
           <Text style={styles.locationText}>
@@ -387,7 +368,6 @@ const EmergencyApp = ({ navigation, route }) => {
         </View>
       )}
 
-      {/* Emergency Exit */}
       <TouchableOpacity
         style={styles.exitButton}
         onPress={emergencyExit}
@@ -395,7 +375,6 @@ const EmergencyApp = ({ navigation, route }) => {
         <Text style={styles.exitText}>EMERGENCY EXIT</Text>
       </TouchableOpacity>
 
-      {/* Sending Indicator */}
       {isSending && (
         <View style={styles.sendingOverlay}>
           <ActivityIndicator size="large" color="#ffffff" />
