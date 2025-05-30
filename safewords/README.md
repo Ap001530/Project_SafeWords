@@ -26,7 +26,7 @@ This guide explains how to:
 
 ## **Step 3: Run the App in Real-Time**  
 - The app will **auto-build**, and a **QR code** will appear in the preview panel.  
-- Use the **web preview** or scan the QR code with your phone (next step).  
+- Use the **web preview** or scan the QR code with your phone (next step). We suggest to use personal device for more technical accuracy and real time test.  
 
 ---
 
