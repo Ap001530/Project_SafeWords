@@ -15,14 +15,12 @@ import { CommonActions } from '@react-navigation/native';
 import * as SMS from 'expo-sms';
 
 const SettingsScreen = ({ navigation, route }) => {
-  // Predefined emergency contacts
   const predefinedContacts = [
     { name: '🚑 Ambulance', number: '104' },
     { name: '🚓 Police', number: '107' },
     { name: '🌐 English Help', number: '112' },
   ];
 
-  // State variables
   const [userContacts, setUserContacts] = useState([]);
   const [newContact, setNewContact] = useState('');
   const [contactName, setContactName] = useState('');
@@ -33,14 +31,11 @@ const SettingsScreen = ({ navigation, route }) => {
   const [generatedCode, setGeneratedCode] = useState('');
   const [smsAvailable, setSmsAvailable] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
-  
-  // Access code state
   const [currentAccessCode, setCurrentAccessCode] = useState('');
   const [newAccessCode, setNewAccessCode] = useState('');
   const [confirmAccessCode, setConfirmAccessCode] = useState('');
   const [isChangingCode, setIsChangingCode] = useState(false);
 
-  // Load contacts and check SMS availability
   useEffect(() => {
     const loadContacts = async () => {
       try {
@@ -59,16 +54,10 @@ const SettingsScreen = ({ navigation, route }) => {
     loadContacts();
   }, []);
 
-  // Save contacts when they change
   useEffect(() => {
     const saveContacts = async () => {
       try {
         await AsyncStorage.setItem('userContacts', JSON.stringify(userContacts));
-        navigation.dispatch(
-          CommonActions.setParams({
-            trustedContacts: getAllContactNumbers()
-          })
-        );
       } catch (error) {
         console.error('Failed to save contacts:', error);
       }
@@ -77,17 +66,40 @@ const SettingsScreen = ({ navigation, route }) => {
     saveContacts();
   }, [userContacts]);
 
-  // Get all contact numbers (user + selected predefined)
   const getAllContactNumbers = () => {
-    return [
-      ...userContacts.map(c => c.number),
-      ...predefinedContacts
-        .filter(pre => userContacts.some(uc => uc.number === pre.number))
-        .map(pre => pre.number)
-    ];
+    const userNumbers = userContacts.map(c => {
+      if (typeof c === 'object') return c.number;
+      return c;
+    }).filter(Boolean);
+
+    const predefinedNumbers = predefinedContacts
+      .filter(pre => userContacts.some(uc => {
+        const ucNumber = typeof uc === 'object' ? uc.number : uc;
+        return ucNumber === pre.number;
+      }))
+      .map(pre => pre.number);
+
+    return [...userNumbers, ...predefinedNumbers].filter(Boolean);
   };
 
-  // Verification functions
+  const pushContactsToEmergency = async () => {
+    try {
+      const contactsToPush = getAllContactNumbers();
+      await AsyncStorage.setItem('trustedContacts', JSON.stringify(contactsToPush));
+      
+      // Force update the Emergency screen by navigating to it
+      navigation.navigate('EmergencyApp', { 
+        trustedContacts: contactsToPush,
+        refresh: Date.now() // Add timestamp to force update
+      });
+      
+      Alert.alert('Success', `Contacts pushed to emergency screen (${contactsToPush.length} contacts)`);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to push contacts');
+      console.error('Failed to push contacts:', error);
+    }
+  };
+
   const generateCode = () => Math.floor(100000 + Math.random() * 900000).toString();
 
   const sendVerificationSMS = async (phone) => {
@@ -127,12 +139,10 @@ const SettingsScreen = ({ navigation, route }) => {
     };
 
     if (editingIndex !== null) {
-      // Update existing contact
       const updated = [...userContacts];
       updated[editingIndex] = contact;
       setUserContacts(updated);
     } else {
-      // Add new contact
       setUserContacts([...userContacts, contact]);
     }
 
@@ -148,7 +158,6 @@ const SettingsScreen = ({ navigation, route }) => {
     setVerificationError(null);
   };
 
-  // Contact management
   const editContact = (index) => {
     const contact = userContacts[index];
     setNewContact(contact.number);
@@ -175,20 +184,25 @@ const SettingsScreen = ({ navigation, route }) => {
   };
 
   const togglePredefinedContact = (contact) => {
-    const isAdded = userContacts.some(c => c.number === contact.number);
+    const isAdded = userContacts.some(c => {
+      const cNumber = typeof c === 'object' ? c.number : c;
+      return cNumber === contact.number;
+    });
     
     if (isAdded) {
-      setUserContacts(userContacts.filter(c => c.number !== contact.number));
+      setUserContacts(userContacts.filter(c => {
+        const cNumber = typeof c === 'object' ? c.number : c;
+        return cNumber !== contact.number;
+      }));
     } else {
       setUserContacts([...userContacts, {
         name: contact.name,
         number: contact.number,
-        verified: true // Predefined contacts are automatically verified
+        verified: true
       }]);
     }
   };
 
-  // Access code functions
   const handleChangeAccessCode = async () => {
     if (!currentAccessCode || !newAccessCode || !confirmAccessCode) {
       Alert.alert('Error', 'Please fill all fields');
@@ -229,7 +243,6 @@ const SettingsScreen = ({ navigation, route }) => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={28} color="#333" />
@@ -238,7 +251,6 @@ const SettingsScreen = ({ navigation, route }) => {
         <View style={{ width: 28 }} />
       </View>
 
-      {/* Change Access Code Section */}
       <Text style={styles.sectionTitle}>Change Access Code</Text>
       
       <TextInput
@@ -281,7 +293,14 @@ const SettingsScreen = ({ navigation, route }) => {
         </Text>
       </TouchableOpacity>
 
-      {/* Add New Contact Section */}
+      <TouchableOpacity
+        style={[styles.button, styles.pushButton]}
+        onPress={pushContactsToEmergency}
+        disabled={userContacts.length === 0}
+      >
+        <Text style={styles.buttonText}>PUSH CONTACTS TO EMERGENCY</Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>
         {editingIndex !== null ? 'Edit Contact' : 'Add New Contact'}
       </Text>
@@ -350,10 +369,12 @@ const SettingsScreen = ({ navigation, route }) => {
         </TouchableOpacity>
       )}
 
-      {/* Emergency Contacts Section */}
       <Text style={styles.sectionTitle}>Emergency Contacts</Text>
       {predefinedContacts.map((contact, index) => {
-        const isAdded = userContacts.some(c => c.number === contact.number);
+        const isAdded = userContacts.some(c => {
+          const cNumber = typeof c === 'object' ? c.number : c;
+          return cNumber === contact.number;
+        });
         return (
           <TouchableOpacity
             key={`predefined-${index}`}
@@ -369,14 +390,13 @@ const SettingsScreen = ({ navigation, route }) => {
         );
       })}
 
-      {/* User Contacts Section */}
       <Text style={styles.sectionTitle}>Your Contacts ({userContacts.filter(c => 
-        !predefinedContacts.some(p => p.number === c.number)).length})</Text>
+        !predefinedContacts.some(p => p.number === (typeof c === 'object' ? c.number : c))).length})</Text>
       
       {userContacts.length > 0 ? (
         userContacts
           .filter(contact => 
-            !predefinedContacts.some(pre => pre.number === contact.number))
+            !predefinedContacts.some(pre => pre.number === (typeof contact === 'object' ? contact.number : contact)))
           .map((contact, index) => (
             <View 
               key={`user-${index}`}
@@ -449,6 +469,10 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: '#3498db'
+  },
+  pushButton: {
+    backgroundColor: '#9b59b6',
+    marginTop: 10
   },
   verifyButton: {
     backgroundColor: '#2ecc71'
