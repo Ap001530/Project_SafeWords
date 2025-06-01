@@ -28,31 +28,37 @@ const EmergencyApp = ({ navigation, route }) => {
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        if (route.params?.trustedContacts) {
-          setContacts(route.params.trustedContacts);
-        }
-        
-        const savedContacts = await AsyncStorage.getItem('trustedContacts');
-        if (savedContacts && !route.params?.trustedContacts) {
-          const parsed = JSON.parse(savedContacts);
-          setContacts(parsed.map(c => c.number).filter(Boolean));
-        }
+  const loadData = async () => {
+    try {
+      // First check for fresh contacts from navigation params
+      const paramsContacts = route.params?.trustedContacts || [];
+      const formattedParamsContacts = paramsContacts
+        .map(c => typeof c === 'object' ? c.number : c)
+        .filter(Boolean);
+      
+      // Then fall back to AsyncStorage
+      const savedContacts = await AsyncStorage.getItem('trustedContacts');
+      const formattedSavedContacts = savedContacts 
+        ? JSON.parse(savedContacts).map(c => typeof c === 'object' ? c.number : c).filter(Boolean)
+        : [];
+      
+      // Combine and deduplicate contacts
+      const allContacts = [...new Set([...formattedParamsContacts, ...formattedSavedContacts])];
+      setContacts(allContacts);
+      
+      await checkLocationPermission();
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    }
+  };
 
-        await checkLocationPermission();
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      }
-    };
-    
+  useEffect(() => {
     loadData();
 
     return () => {
       if (locationSubscription) locationSubscription.remove();
     };
-  }, [route.params?.trustedContacts]);
+  }, [route.params?.trustedContacts, route.params?.refresh]);
 
   const checkLocationPermission = async () => {
     setIsRequestingPermission(true);
@@ -109,44 +115,26 @@ const EmergencyApp = ({ navigation, route }) => {
     }
   };
 
-  const sendToContactsIndividually = async (contacts, message) => {
-    let successCount = 0;
-    const failedContacts = [];
-    
-    for (const contact of contacts) {
-      try {
-        const { result } = await SMS.sendSMSAsync([contact], message);
-        if (result === 'sent') {
-          successCount++;
-        } else {
-          failedContacts.push(contact);
-        }
-      } catch (e) {
-        console.error(`Failed to send to ${contact}:`, e);
-        failedContacts.push(contact);
-      }
-    }
-    
-    saveAlert(`Sent to ${successCount} of ${contacts.length} contacts`);
-    
-    if (failedContacts.length > 0) {
-      Alert.alert(
-        'Partial Success',
-        `Sent to ${successCount} contacts. Failed to send to: ${failedContacts.join(', ')}`
-      );
-    } else {
-      Alert.alert('Success', `Alert sent to all ${contacts.length} contacts`);
-    }
-  };
-
   const sendEmergencyAlert = async () => {
-    if (!location) {
-      Alert.alert('Error', 'Location not available');
+    await loadData();
+    
+    if (contacts.length === 0) {
+      Alert.alert(
+        'No Contacts',
+        'Please add and push contacts from Settings first',
+        [
+          { 
+            text: 'Go to Settings', 
+            onPress: () => navigation.navigate('Settings') 
+          },
+          { text: 'Cancel' }
+        ]
+      );
       return;
     }
 
-    if (contacts.length === 0) {
-      Alert.alert('No Contacts', 'Please add trusted contacts in Settings');
+    if (!location) {
+      Alert.alert('Error', 'Location not available');
       return;
     }
 
@@ -156,34 +144,22 @@ const EmergencyApp = ({ navigation, route }) => {
     await saveAlert(`Initiating alert to ${contacts.length} contacts`, location);
 
     try {
-      const available = await SMS.isAvailableAsync();
-      if (available) {
-        if (Platform.OS === 'android') {
-          try {
-            const { result } = await SMS.sendSMSAsync(contacts, message);
-            if (result === 'sent') {
-              saveAlert(`Alert sent to all ${contacts.length} contacts`);
-              Alert.alert('Success', `Emergency alert sent to ${contacts.length} contacts`);
-            } else {
-              await sendToContactsIndividually(contacts, message);
-            }
-          } catch (e) {
-            console.log("Group send failed, trying individual");
-            await sendToContactsIndividually(contacts, message);
-          }
-        } else {
-          const smsUrl = `sms:${contacts.join(',')}&body=${encodeURIComponent(message)}`;
-          await Linking.openURL(smsUrl);
-          saveAlert(`Opened messages with ${contacts.length} contacts`);
-        }
+      if (Platform.OS === 'android') {
+        // Directly open SMS app with pre-filled message
+        const smsUrl = `sms:${contacts.join(',')}?body=${encodeURIComponent(message)}`;
+        await Linking.openURL(smsUrl);
       } else {
-        Alert.alert('Error', 'SMS service not available');
-        saveAlert('SMS service not available');
+        // For iOS, use the SMS composer
+        const { result } = await SMS.sendSMSAsync(contacts, message);
+        if (result !== 'sent') {
+          throw new Error('Failed to send SMS');
+        }
       }
+      saveAlert(`Alert sent to ${contacts.length} contacts`);
     } catch (error) {
       console.error('Failed to send SMS:', error);
       saveAlert('Failed to send emergency alert');
-      Alert.alert('Error', 'Failed to send emergency alert');
+      Alert.alert('Error', 'Failed to send emergency alert. Please try sending manually.');
     } finally {
       setIsSending(false);
     }
@@ -289,21 +265,18 @@ const EmergencyApp = ({ navigation, route }) => {
           </Text>
         </View>
         <View style={styles.statusItem}>
-          <MaterialIcons 
-            name="people" 
-            size={20} 
-            color={contacts.length > 0 ? '#4CAF50' : '#F44336'} 
-          />
+          <MaterialIcons name="contacts" size={20} color="#3498db" />
           <View style={styles.contactsContainer}>
             <Text style={styles.statusText}>
               {contacts.length} Contact{contacts.length !== 1 ? 's' : ''}
             </Text>
-            {contacts.length > 0 && (
-              <ScrollView horizontal style={styles.contactsScroll}>
-                <Text style={styles.contactsText}>
-                  {contacts.join(', ')}
-                </Text>
-              </ScrollView>
+            {contacts.slice(0, 3).map((contact, index) => (
+              <Text key={index} style={styles.contactNumber}>
+                {contact.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}
+              </Text>
+            ))}
+            {contacts.length > 3 && (
+              <Text style={styles.moreContacts}>+{contacts.length - 3} more</Text>
             )}
           </View>
         </View>
@@ -432,12 +405,14 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8
   },
-  contactsScroll: {
-    maxHeight: 40
-  },
-  contactsText: {
+  contactNumber: {
     color: '#fff',
     fontSize: 14,
+    marginTop: 2
+  },
+  moreContacts: {
+    color: '#95a5a6',
+    fontSize: 12,
     marginTop: 2
   },
   activateButton: {
